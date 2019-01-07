@@ -1,0 +1,7 @@
+[github]
+; Specify an access token
+accesstoken = 12345
+; or specify a username/password
+; N.B. if both accesstoken and username/password are provided, only the accesstoken will be used
+username = myuser
+password = mypassword

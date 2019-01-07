@@ -1,0 +1,10 @@
+# VIM files
+.*.swp
+
+# Virtual environments
+virtualenv/
+VirtualEnv/
+venv/
+
+# Sensitive (credential containing) files
+settings.ini

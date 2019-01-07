@@ -1,0 +1,43 @@
+Requirements
+------------
+
+Python 3
+Python modules listed in requirements.txt
+
+Setup
+-----
+
+The easiest way to get started is to clone the repository:
+
+	git clone $repo_url
+
+Then cd into the directory that creates:
+
+	cd carpentries-management-scripts
+
+Next, create a python 3 virtual environment:
+
+	virtualenv -p python3 venv
+
+Activate the environment:
+
+	source venv/bin/activate
+
+Install the requirements:
+
+	pip install -r requirements.txt
+
+Proceed to 'Usage' to user the scripts.
+
+Usage
+-----
+
+1. Copy settings.ini.example to settings.ini and put your settings in there (as it contains credentials, make sure the permissions are such that only you can read it!)
+2. Run the script you wish to use, either with python (e.g. 'python3 <script>.py') or directly (e.g. './<script>.py').
+
+N.B. The .gitignore is already configured to ignore settings.ini and directories called 'virtualenv', 'VirtualEnv' and 'venv', to prevent accidental committal of secrets and virtual environments.
+
+Scripts
+-------
+
+freeze.py - Freeze all content repositories referenced by the schedule of a specific course and update that schedule to point to the frozen versions.
