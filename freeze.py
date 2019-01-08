@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 tempdirs = []
 repository = None
 force = None
+carry_on = False
 freeze_date = None
 settings_file = 'settings.ini'
 settings = None
@@ -32,6 +33,10 @@ def process_commandline():
 		' current working directory.  See settings.ini.example for an example.')
 	parser.add_argument('--force', dest='force', action='store_true',
         help='force freeze even if repos already looks frozen (based on url)')
+	parser.add_argument('--continue', dest='carry_on', action='store_true',
+		help='Carry on regardless if the frozen repository already exists'
+		' (will not update existing repositories - just assumes they are'
+		' already faithful snapshots)')
 	parser.add_argument('repo', action='store',
 		help='Repository to freeze (i.e. the repository with the schedule'
 		' whose repos you want to freeze)')
@@ -67,6 +72,10 @@ def process_commandline():
 		global force
 		force = True
 	
+	if args.carry_on:
+		global carry_on
+		carry_on = True
+
 	logger.debug("Got repository '%s' from command line", repository)
 
 def read_settings(settings_file):
@@ -84,7 +93,61 @@ def read_settings(settings_file):
 	if not cp.sections():
 		logger.error("Unable to read any settings from '%s'.", settings_file)
 		raise RuntimeError("Unable to read settings.")
+
 	return cp
+
+def __get_schedule_file_relative_path():
+	"""
+	Returns the relative path of the schedule file to the git repo root.
+
+	Used by __get_schdule_file_path and update_repo_urls so we only have
+	to fix it in one place if	it changes.
+	"""
+	return os.path.join('_includes', 'sc', 'schedule.html')
+	
+
+def  __get_schedule_file_path(repo_root):
+	"""
+	Returns the path of the schedule file - used by _get_schedule_file,
+	_write_schedule_file and update_repo_urls so we only have to fix it
+	in one place if	it changes.
+	"""
+	return os.path.join(repo_root, __get_schedule_file_relative_path())
+
+def _get_schedule_file(repo_root):
+	"""
+	Read the content of the schedule file.
+
+	args:
+		repo_root: Root of the cloned repository with the file in.
+
+	returns:
+		contents of the file as a list of lines (via .readlines())
+	"""
+	schedule_path = __get_schedule_file_path(repo_root)
+	logger.debug("Reading schedule from: %s", schedule_path)
+	with open(schedule_path) as schedule_file:
+		schedule = schedule_file.readlines()
+	return schedule
+
+def _write_schedule_file(repo_root, lines):
+	"""
+	Write new contents to the schedule file.
+
+	args:
+		repo_root: Root of the cloned repository with the file in.
+		lines: list of lines to write (mirroring return value of
+			_get_schedule_file)
+
+	returns:
+		Nothing
+	"""
+	schedule_path = __get_schedule_file_path(repo_root)
+	logger.debug("Writing new schedule to: %s", schedule_path)
+
+	print(lines)
+	with open(schedule_path, 'w') as schedule_file:
+		schedule_file.writelines(lines)
 
 
 def get_repos_to_freeze(repo_root):
@@ -98,10 +161,7 @@ def get_repos_to_freeze(repo_root):
 	returns:
 		list of urls that are linked to from the schedule
 	"""
-	schedule_path = os.path.join(repo_root, '_includes', 'sc', 'schedule.html')
-	logger.debug("Reading schedule from: %s", schedule_path)
-	with open(schedule_path) as schedule_file:
-		schedule = schedule_file.readlines()
+	schedule = _get_schedule_file(repo_root)
 	repos_to_freeze = []
 	link_re = re.compile(r'<a\s+(?:[^\s]+\s+)?href="(?P<url>[^"]+)"')
 	for line in schedule:
@@ -120,13 +180,26 @@ def get_repos_to_freeze(repo_root):
 						url.geturl(), new_url.geturl())
 					url = new_url
 
-				repos_to_freeze.append(url.geturl())
+				repos_to_freeze.append( (match.group('url'), url.geturl()) )
 				# Check the rest of the string for another url
 				start = match.end()
 			else:
 				start = -1 # No match, so exit loop
 	logger.debug("get_repos_to_freeze found: %s", repos_to_freeze)
 	return repos_to_freeze
+
+def _get_github_instance():
+	"""
+	Initialise a new github.Github object from the settings file.
+
+	args:
+		None
+
+	returns:
+		New Github object
+	"""
+	return github.Github(settings['github']['accesstoken'])
+
 
 def create_github_repo(organisation, repo_name, homepage=None):
 	"""
@@ -141,16 +214,7 @@ def create_github_repo(organisation, repo_name, homepage=None):
 	returns:
 		URL of the new repository
 	"""
-	if 'github' not in settings:
-		logger.error("No github settings found! (Have they been put in %s?)",
-			settings_file)
-		raise RuntimeError("No github settings found.")
-
-	if settings['github'].get('accesstoken'):
-		gh = github.Github(settings['github']['accesstoken'])
-	else:
-		gh = github.Github(settings['github']['username'],
-			settings['github']['password'])
+	gh = _get_github_instance()
 
 	gh_org = gh.get_organization(organisation)
 
@@ -158,7 +222,45 @@ def create_github_repo(organisation, repo_name, homepage=None):
 	if homepage is not None:
 		create_args['homepage'] = homepage
 	new_repo =  gh_org.create_repo(**create_args)
-	return new_repo.url
+	return new_repo.clone_url
+
+def set_github_default_branch(organisation, repo_name, branch='master'):
+	"""
+	Sets the default branch on a github repo.
+
+	args:
+		organisation: organisation to update in
+		repo_name: name of repo to update
+		branch: branch to set as default ('master' if not specified)
+
+	returns:
+		Nothing
+	"""
+	_get_github_instance().get_organization(organisation).get_repo(repo_name)\
+		.edit(default_branch=branch)
+
+def import_to(source, dest):
+	"""
+	Import repository from source to dest.
+
+	Works very similarly to the github import tool - clones the source,
+	updates the remote and pushes to the new remote.
+
+	Based on GitHubs guide on mirroring a repository:
+		https://help.github.com/articles/duplicating-a-repository/
+
+	args:
+		source: source repository url
+		dest: destination repository url
+	"""
+	with tempfile.TemporaryDirectory() as tempdir:
+		logger.debug("Using temporary directory: %s", tempdir)
+		repo = git.Repo.clone_from(source, tempdir, bare=True)
+		logger.info("Fetched repository: %s", source)
+		repo.delete_remote('origin')
+		repo.create_remote('origin', dest)
+		repo.remote('origin').push(mirror=True)
+		logger.info("Pushed to new reposotory: %s", dest)
 
 
 def freeze(repo_url, freeze_date, force=False):
@@ -214,9 +316,59 @@ def freeze(repo_url, freeze_date, force=False):
 	repo_homepage = "https://%s.github.io/%s" % (organisation, repo_name)
 
 	# Create the new remote repository
-	create_github_repo(organisation, repo_name, repo_homepage)
-	logger.info("Created repository which will be published at: %s", repo_homepage)
+	new_repo_url = create_github_repo(organisation, repo_name, repo_homepage)
+	logger.info("Created repository which will be published at: %s",
+		repo_homepage)
 
+	# This is why we need an access token rather than username/password
+	new_repo_url = new_repo_url.replace('://', '://%(user)s@' % {
+		'user': settings['github']['accesstoken'],
+		})
+
+	import_to(repo_url, new_repo_url)
+	set_github_default_branch(organisation, repo_name, 'gh-pages')
+	logger.debug("Set default branch to gh-pages on new repo.")
+
+	logger.info("Imported repository.")
+	return repo_homepage
+
+def update_repo_links(gitdirectory, frozen_urls):
+	"""
+	Updates the urls in the clone of the carpentries homepage.
+
+	Changes the urls then commits the new version automatically.
+
+	args:
+		gitdirectory: location of the local clone of the repository to
+			update
+		frozen_urls: dict mapping the old url (key) to new url (value)
+
+	returns:
+		Nothing
+	"""
+	repo = git.Repo(gitdirectory)
+	old_schedule = _get_schedule_file(gitdirectory)
+	new_schedule = []
+	for line in old_schedule:
+		new_line = line
+		for (old_url, new_url) in frozen_urls.items():
+			logger.debug("Replacing url '%s' with '%s' in line: %s", old_url,
+				new_url, new_line)
+			new_line = new_line.replace(old_url, new_url)
+		new_schedule.append(new_line)
+		logger.debug("Added line '%s' to be written", new_line)
+	_write_schedule_file(gitdirectory, new_schedule)
+	ri = repo.index
+	schedule_file_location = __get_schedule_file_relative_path()
+	logger.debug("Adding modified %s ready to commit", schedule_file_location)
+	ri.add([schedule_file_location])
+	ri.commit("""Updated schedule with frozen urls.
+
+Automatic commit from freeze script.
+""")
+	# This is why we make sure to have 'user@' in the remote url when
+	# this was cloned at the start of do_freeze.
+	repo.remote('origin').push()
 
 def do_freeze(repo_url, force=False):
 	"""
@@ -233,6 +385,11 @@ def do_freeze(repo_url, force=False):
 	"""
 	with tempfile.TemporaryDirectory() as tempdir:
 		logger.debug("Using temporary directory: %s", tempdir)
+		# Make life easy when we try to push the changes at the end.
+		if 'github' in repo_url.lower() and '@' not in repo_url:
+			repo_url = repo_url.replace('://', '://%(user)s@' % {
+				'user': settings['github']['accesstoken'],
+				})
 		git.Repo.clone_from(repo_url, tempdir)
 		logger.info("Fetched repository: %s", repo_url)
 
@@ -240,13 +397,19 @@ def do_freeze(repo_url, force=False):
 		logger.info("Need to freeze: %s", to_freeze)
 
 		frozen = {}
-		for repo in to_freeze:
+		for (homepage, repo) in to_freeze:
+			if homepage in frozen:
+				# Some repos are specified twice - e.g. the R and Python
+				# inputs are on the schedule twice, once each day.
+				# Trying to re-freeze the same repository will fail (and
+				# makes no sense).
+				continue # Skip to next repo.
 			frozen_url = freeze(repo, freeze_date, force)
 			if frozen_url:
-				frozen[repo] = frozen_url
+				frozen[homepage] = frozen_url
 
 		if len(frozen):
-			update_repo_urls(tempdir, frozen)
+			update_repo_links(tempdir, frozen)
 		else:
 			logger.warning("No repositories frozen - maybe none found or"
 			 " all already frozen?")
@@ -255,4 +418,17 @@ def do_freeze(repo_url, force=False):
 if __name__ == '__main__':
 	process_commandline()
 	settings = read_settings(settings_file)
+	# Check for mandatory settings
+
+	# Lots of this code relies on there being an access token
+	if 'github' not in settings:
+		logger.error("No GitHub settings found! (Have they been put in %s?)",
+			settings_file)
+		raise RuntimeError("No GitHub settings found.")
+	elif 'accesstoken' not in settings['github']:
+		logger.error(
+			"No access token found for GitHub! (Have they been put in %s?)",
+			settings_file)
+		raise RuntimeError("No GitHub access token")
+
 	do_freeze(repository, force)

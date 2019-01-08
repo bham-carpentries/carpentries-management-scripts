@@ -1,10 +1,5 @@
 [github]
 ; Specify an access token
-; If using an access token then it needs the following scope:
+; It needs the following scope:
 ; repo -> public_repo (to create new repositories and commit to existing ones)
 accesstoken = 12345
-; or specify a username/password
-; N.B. if both accesstoken and username/password are provided, only the accesstoken will be used
-; N.B. username/password access is not a thoroughly tested as using accesstokens (but should work)
-username = myuser
-password = mypassword
