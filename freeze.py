@@ -145,7 +145,6 @@ def _write_schedule_file(repo_root, lines):
 	schedule_path = __get_schedule_file_path(repo_root)
 	logger.debug("Writing new schedule to: %s", schedule_path)
 
-	print(lines)
 	with open(schedule_path, 'w') as schedule_file:
 		schedule_file.writelines(lines)
 
