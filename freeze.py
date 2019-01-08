@@ -188,6 +188,37 @@ def get_repos_to_freeze(repo_root):
 	logger.debug("get_repos_to_freeze found: %s", repos_to_freeze)
 	return repos_to_freeze
 
+def _get_organisation_repo_from_url(repo_url):
+	"""
+	Attempts to guess organisation and repository from Github url
+
+	We need this information to use the github API.
+
+	args:
+		repo_url: url to examine
+
+	returns:
+		tuple of (organisation, repository)
+	"""
+	url = urllib.parse.urlparse(repo_url)
+	split_path = url.path.split('/')
+
+	# If the url ends with a '/' the last part of the url is at index
+	# -2 ([-1] is '').
+	if repo_url.endswith('/'):
+		last_path_part = -2
+	else:
+		last_path_part = -1
+
+	# Should be ['', <organisation name>, <repo>(, '')]
+	if len(split_path) not in (3, 4):
+		logger.error("Path length mismatch in url: %s", repo_url)
+		raise RuntimeError("Path length is wrong!")
+
+	organisation = split_path[1]
+	repo_name = split_path[last_path_part]
+	return (organisation, repo_name)
+
 def _get_github_instance():
 	"""
 	Initialise a new github.Github object from the settings file.
@@ -239,6 +270,21 @@ def set_github_default_branch(organisation, repo_name, branch='master'):
 	_get_github_instance().get_organization(organisation).get_repo(repo_name)\
 		.edit(default_branch=branch)
 
+def get_github_homepage(organisation, repo_name):
+	"""
+	Gets the homepage for a repository.
+
+	args:
+		organisation: organisation to create in
+		repo_name: name to create
+
+	returns:
+		homepage of the repository
+
+	"""
+	return _get_github_instance().get_organization(organisation)\
+		.get_repo(repo_name).homepage
+
 def import_to(source, dest):
 	"""
 	Import repository from source to dest.
@@ -263,6 +309,78 @@ def import_to(source, dest):
 		logger.info("Pushed to new reposotory: %s", dest)
 
 
+def update_frozen_repository(repo_url, course_repository):
+	"""
+	Adds a note and back-reference to the frozen copy of a repository.
+
+	args:
+		repo_url: Url of the frozen repo
+		course_repository: Url of the course repository (the backlink
+			will be determined from this repositories Github homepage)
+
+	returns:
+		Nothing
+	"""
+	# Find the organisation and repository for the course homepage
+	(organisation, repository) = _get_organisation_repo_from_url(course_repository)
+	logger.debug("Finding homepage for repo %s in %s", repository, organisation)
+	# Get the homepage (for the link back)
+	backlink = get_github_homepage(organisation, repository)
+	# Infer the course date from the repository start, if it looks like
+	# a date (the first 10 characters are all 0-9 or '-'s)
+	if re.match('[0-9-]{10}', repository):
+		course_date = dateparser.parse(repository[:10]).date()
+	else:
+		course_date = None
+	logger.debug("Schedule back-link will be to: %s", backlink)
+	with tempfile.TemporaryDirectory() as tempdir:
+		logger.debug("Using temporary directory: %s", tempdir)
+		if '@' not in repo_url:
+			repo_url = repo_url.replace('://', '://%(user)s@' % {
+				'user': settings['github']['accesstoken'],
+				})
+		repo = git.Repo.clone_from(repo_url, tempdir)
+		
+		# Read the old index
+		with open(os.path.join(tempdir, 'index.md')) as f:
+			old_index = f.readlines()
+
+		# Modify it - the file starts with some meta data seperated by
+		# a line above and below beginning with dashes.  Find the last
+		# dashes and insert the message.
+		new_index = []
+		dash_count = 0
+		for line in old_index:
+			if line.startswith('--'):
+				dash_count += 1
+				if dash_count == 2:
+					# Make sure to include the original line of dashes first
+					new_index.append(line)
+					# 2nd line beginning with dashes
+					message = ["This is the version taught at the [Software carpentries](%s) workshop" % backlink]
+					if course_date is not None:
+						message.append(" beginning on %s" % course_date.strftime("%A %d %B %Y"))
+					message.append('.\n')
+					new_index.append(''.join(message))
+					# Don't re-add this line by falling through - force next loop
+					continue
+			new_index.append(line)
+
+		# Write the new file
+		with open(os.path.join(tempdir, 'index.md'), 'w') as f:
+			f.writelines(new_index)
+		
+		ri = repo.index
+		ri.add(['index.md'])
+		ri.commit("""Updated index with back link to course schedule.
+
+Automatic commit from freeze script.
+""")
+		# This is why we make sure to have 'user@' in the remote url when
+		# this was cloned at the start of do_freeze.
+		repo.remote('origin').push()
+
+
 def freeze(repo_url, freeze_date, force=False):
 	"""
 	Actually freeze the repository given.
@@ -280,21 +398,12 @@ def freeze(repo_url, freeze_date, force=False):
 	"""
 
 	logger.debug("Freezing repository: %s", repo_url)
-	url = urllib.parse.urlparse(repo_url)
-	split_path = url.path.split('/')
-
-	# If the url ends with a '/' the last part of the url is at index
-	# -2 ([-1] is '').
-	if repo_url.endswith('/'):
-		last_path_part = -2
-	else:
-		last_path_part = -1
-
+	(organisation, repo_name) = _get_organisation_repo_from_url(repo_url)
 	# Does the url path already start with something that looks like
 	# a YYYY-MM-DD-bham_ format (20..-*.-^.-bham_ where . is any digit,
 	# * is 0 or 1 and ^ is 0, 1, 2 or 3)?
 	if re.match('20[0-9]{2}-[01][0-9]-[0-3][0-9]-bham_',
-		split_path[last_path_part]):
+		repo_name):
 		logger.warning("Repository '%s' looks like it is already frozen",
 			repo_url)
 		if not force:
@@ -303,16 +412,7 @@ def freeze(repo_url, freeze_date, force=False):
 		else:
 			logger.info("Force specified, freezing anyway.")
 
-	new_path = split_path
-
-	# Should be ['', <organisation name>, <path>(, '')]
-	if len(new_path) not in (3, 4):
-		new_url = url._replace(path='/'.join(new_path))
-		logger.error("New path length mismatch - tried %s" % new_url)
-		raise RuntimeError("Path length is wrong!")
-
-	organisation = new_path[1]
-	repo_name = '%s-bham_' % freeze_date.isoformat() + new_path[last_path_part]
+	repo_name = '%s-bham_' % freeze_date.isoformat() + repo_name
 	repo_homepage = "https://%s.github.io/%s" % (organisation, repo_name)
 
 	# Create the new remote repository
@@ -330,6 +430,8 @@ def freeze(repo_url, freeze_date, force=False):
 	logger.debug("Set default branch to gh-pages on new repo.")
 
 	logger.info("Imported repository.")
+
+	update_frozen_repository(new_repo_url, repository)
 	return repo_homepage
 
 def update_repo_links(gitdirectory, frozen_urls):
@@ -352,11 +454,8 @@ def update_repo_links(gitdirectory, frozen_urls):
 	for line in old_schedule:
 		new_line = line
 		for (old_url, new_url) in frozen_urls.items():
-			logger.debug("Replacing url '%s' with '%s' in line: %s", old_url,
-				new_url, new_line)
 			new_line = new_line.replace(old_url, new_url)
 		new_schedule.append(new_line)
-		logger.debug("Added line '%s' to be written", new_line)
 	_write_schedule_file(gitdirectory, new_schedule)
 	ri = repo.index
 	schedule_file_location = __get_schedule_file_relative_path()
