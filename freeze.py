@@ -24,26 +24,52 @@ settings_file = 'settings.ini'
 settings = None
 
 def process_commandline():
-	parser = argparse.ArgumentParser(description='Freeze the version of a'
-		' Birmingham Carpentries course for posterity.')
-	parser.add_argument('-d', dest='debug', action='store_true',
-        help='turn on debug mode (produces more detailed output)')
-	parser.add_argument('-s', dest='settings_file', action='store',
+	parser = argparse.ArgumentParser(
+		description= \
+		'Freeze the version of a Birmingham Carpentries course for posterity.'
+	)
+	parser.add_argument(
+		'-d',
+		dest='debug',
+		action='store_true',
+		help='turn on debug mode (produces more detailed output)'
+	)
+	parser.add_argument(
+		'-s',
+		dest='settings_file',
+		action='store',
 		help='Specify the settings file - defaults to "settings.ini" in the'
-		' current working directory.  See settings.ini.example for an example.')
-	parser.add_argument('--force', dest='force', action='store_true',
-        help='force freeze even if repos already looks frozen (based on url)')
-	parser.add_argument('--continue', dest='carry_on', action='store_true',
+			' current working directory.  See settings.ini.example for an'
+			' example.'
+	)
+	parser.add_argument(
+		'--force',
+		dest='force',
+		action='store_true',
+		help='force freeze even if repos already looks frozen (based on url)'
+	)
+	parser.add_argument(
+		'--continue',
+		dest='carry_on',
+		action='store_true',
 		help='Carry on regardless if the frozen repository already exists'
-		' (will not update existing repositories - just assumes they are'
-		' already faithful snapshots)')
-	parser.add_argument('repo', action='store',
+			' (will not update existing repositories - just assumes they are'
+			' already faithful snapshots)'
+	)
+	parser.add_argument(
+		'repo',
+		action='store',
 		help='Repository to freeze (i.e. the repository with the schedule'
-		' whose repos you want to freeze)')
-	parser.add_argument('date', action='store',
-		help='Date to use for new (frozen) repositories.  Any date parseable'
-		' by the dateparser (https://dateparser.readthedocs.io) module is'
-		' fine.')
+			' whose repos you want to freeze).  Can be the repository'
+			' (github.com/.../...) or Git Pages (...\\.github.io/...).'
+	)
+	parser.add_argument(
+		'date',
+		action='store',
+		help='Date to use in the prefix of the new (frozen) repositories.  Any'
+			' date parseable by the dateparser'
+			' (https://dateparser.readthedocs.io) module is fine.'
+	)
 	
 	args = parser.parse_args()
 
@@ -149,6 +175,32 @@ def _write_schedule_file(repo_root, lines):
 		schedule_file.writelines(lines)
 
 
+def _github_io_to_github_com(url):
+	"""
+	Converts <org>.github.io/<repo> to github.com/<org>/<repo>
+
+	args:
+		url: urllib object of the parsed source url
+
+	returns:
+		New urllib object for the new url
+	"""
+	assert url.netloc.endswith('.github.io'), \
+		"_github_io_to_github_com called with non-github.io url: %s" % \
+		url.geturl()
+
+	new_netloc = 'github.com'
+	path_prefix = url.netloc[:-10]
+	new_url = url._replace(
+		netloc=new_netloc,
+		path=''.join(['/', path_prefix, url.path])
+	)
+	logger.info(
+		"Converted github pages url '%s' to repo '%s'",
+		url.geturl(), new_url.geturl()
+	)
+	return new_url
+
 def get_repos_to_freeze(repo_root):
 	"""
 	Finds the repos referenced by the schedule, to get a list to freeze.
@@ -171,13 +223,7 @@ def get_repos_to_freeze(repo_root):
 				# Found a match - store the url found
 				url = urllib.parse.urlparse(match.group('url'))
 				if url.netloc.endswith('.github.io'):
-					new_netloc = 'github.com'
-					path_prefix = url.netloc[:-10]
-					new_url = url._replace(netloc=new_netloc,
-						path=path_prefix + url.path)
-					logger.info("Converted github pages url '%s' to repo '%s",
-						url.geturl(), new_url.geturl())
-					url = new_url
+					url = _github_io_to_github_com(url)
 
 				repos_to_freeze.append( (match.group('url'), url.geturl()) )
 				# Check the rest of the string for another url
@@ -200,18 +246,23 @@ def _get_organisation_repo_from_url(repo_url):
 		tuple of (organisation, repository)
 	"""
 	url = urllib.parse.urlparse(repo_url)
+
+	if url.netloc.endswith('.github.io'):
+		url = _github_io_to_github_com(url)
+
+	logger.debug("Url path is '%s'", url.path)
 	split_path = url.path.split('/')
 
 	# If the url ends with a '/' the last part of the url is at index
 	# -2 ([-1] is '').
-	if repo_url.endswith('/'):
+	if split_path[-1] == '':
 		last_path_part = -2
 	else:
 		last_path_part = -1
 
 	# Should be ['', <organisation name>, <repo>(, '')]
 	if len(split_path) not in (3, 4):
-		logger.error("Path length mismatch in url: %s", repo_url)
+		logger.error("Path length mismatch in url: %s", url.geturl())
 		raise RuntimeError("Path length is wrong!")
 
 	organisation = split_path[1]
@@ -321,8 +372,14 @@ def update_frozen_repository(repo_url, course_repository):
 		Nothing
 	"""
 	# Find the organisation and repository for the course homepage
-	(organisation, repository) = _get_organisation_repo_from_url(course_repository)
-	logger.debug("Finding homepage for repo %s in %s", repository, organisation)
+	(organisation, repository) = _get_organisation_repo_from_url(
+		course_repository
+	)
+	logger.debug(
+		"Finding homepage for repo %s in %s",
+		repository,
+		organisation
+	)
 	# Get the homepage (for the link back)
 	backlink = get_github_homepage(organisation, repository)
 	# Infer the course date from the repository start, if it looks like
@@ -335,9 +392,12 @@ def update_frozen_repository(repo_url, course_repository):
 	with tempfile.TemporaryDirectory() as tempdir:
 		logger.debug("Using temporary directory: %s", tempdir)
 		if '@' not in repo_url:
-			repo_url = repo_url.replace('://', '://%(user)s@' % {
-				'user': settings['github']['accesstoken'],
-				})
+			repo_url = repo_url.replace(
+				'://',
+				'://%(user)s@' % {
+					'user': settings['github']['accesstoken'],
+				}
+			)
 		repo = git.Repo.clone_from(repo_url, tempdir)
 		
 		# Read the old index
@@ -356,12 +416,20 @@ def update_frozen_repository(repo_url, course_repository):
 					# Make sure to include the original line of dashes first
 					new_index.append(line)
 					# 2nd line beginning with dashes
-					message = ["This is the version taught at the [Software carpentries](%s) workshop" % backlink]
+					message = [
+						"This is the version taught at the"
+						" [Software carpentries](%s) workshop" % backlink
+					]
 					if course_date is not None:
-						message.append(" beginning on %s" % course_date.strftime("%A %d %B %Y"))
+						message.append(
+							" beginning on %s" % course_date.strftime(
+								"%A %d %B %Y"
+							)
+						)
 					message.append('.\n')
 					new_index.append(''.join(message))
-					# Don't re-add this line by falling through - force next loop
+					# Don't re-add this line by falling through -
+					# force next loop
 					continue
 			new_index.append(line)
 
@@ -403,8 +471,10 @@ def freeze(repo_url, freeze_date, force=False):
 	# * is 0 or 1 and ^ is 0, 1, 2 or 3)?
 	if re.match('20[0-9]{2}-[01][0-9]-[0-3][0-9]-bham_',
 		repo_name):
-		logger.warning("Repository '%s' looks like it is already frozen",
-			repo_url)
+		logger.warning(
+			"Repository '%s' looks like it is already frozen",
+			repo_url
+		)
 		if not force:
 			logger.error("Will not freeze this one without a force!")
 			return False
@@ -416,13 +486,18 @@ def freeze(repo_url, freeze_date, force=False):
 
 	# Create the new remote repository
 	new_repo_url = create_github_repo(organisation, repo_name, repo_homepage)
-	logger.info("Created repository which will be published at: %s",
-		repo_homepage)
+	logger.info(
+		"Created repository which will be published at: %s",
+		repo_homepage
+	)
 
 	# This is why we need an access token rather than username/password
-	new_repo_url = new_repo_url.replace('://', '://%(user)s@' % {
-		'user': settings['github']['accesstoken'],
-		})
+	new_repo_url = new_repo_url.replace(
+		'://',
+		'://%(user)s@' % {
+			'user': settings['github']['accesstoken'],
+		}
+	)
 
 	import_to(repo_url, new_repo_url)
 	set_github_default_branch(organisation, repo_name, 'gh-pages')
@@ -485,9 +560,12 @@ def do_freeze(repo_url, force=False):
 		logger.debug("Using temporary directory: %s", tempdir)
 		# Make life easy when we try to push the changes at the end.
 		if 'github' in repo_url.lower() and '@' not in repo_url:
-			repo_url = repo_url.replace('://', '://%(user)s@' % {
-				'user': settings['github']['accesstoken'],
-				})
+			repo_url = repo_url.replace(
+				'://',
+				'://%(user)s@' % {
+					'user': settings['github']['accesstoken'],
+				}
+			)
 		git.Repo.clone_from(repo_url, tempdir)
 		logger.info("Fetched repository: %s", repo_url)
 
@@ -509,8 +587,10 @@ def do_freeze(repo_url, force=False):
 		if len(frozen):
 			update_repo_links(tempdir, frozen)
 		else:
-			logger.warning("No repositories frozen - maybe none found or"
-			 " all already frozen?")
+			logger.warning(
+				"No repositories frozen - maybe none found or all already"
+				" frozen?"
+			 )
 
 
 if __name__ == '__main__':
@@ -520,13 +600,16 @@ if __name__ == '__main__':
 
 	# Lots of this code relies on there being an access token
 	if 'github' not in settings:
-		logger.error("No GitHub settings found! (Have they been put in %s?)",
-			settings_file)
+		logger.error(
+			"No GitHub settings found! (Have they been put in %s?)",
+			settings_file
+		)
 		raise RuntimeError("No GitHub settings found.")
 	elif 'accesstoken' not in settings['github']:
 		logger.error(
 			"No access token found for GitHub! (Have they been put in %s?)",
-			settings_file)
+			settings_file
+		)
 		raise RuntimeError("No GitHub access token")
 
 	do_freeze(repository, force)

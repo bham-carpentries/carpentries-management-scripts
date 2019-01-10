@@ -1,3 +1,8 @@
+PLEASE DO NOT MODIFY THIS CODE WITHOUT CREATING/MODIFYING A CORRESPONDING UNIT-TEST (see *_test.py for the tests for file *.py):
+  * For bugs a new regression test must be added before fixing
+  * For new features add a feature test that will pass when the feature works.
+
+
 Requirements
 ------------
 
@@ -41,3 +46,12 @@ Scripts
 -------
 
 freeze.py - Freeze all content repositories referenced by the schedule of a specific course and update that schedule to point to the frozen versions.
+
+Testing
+-------
+
+Testing was added retrospectively but by requesting that no changes are made without a test being added/changed I'm hoping for 100% test coverage eventually.
+
+The tests can be run by:
+
+	python -m unittest discover -p '*_test.py'
