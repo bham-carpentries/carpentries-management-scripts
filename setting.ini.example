@@ -1,5 +1,0 @@
-[github]
-; Specify an access token
-; It needs the following scope:
-; repo -> public_repo (to create new repositories and commit to existing ones)
-accesstoken = 12345
