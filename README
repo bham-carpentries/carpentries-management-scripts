@@ -38,6 +38,7 @@ Usage
 -----
 
 1. Copy settings.ini.example to settings.ini and put your settings in there (as it contains credentials, make sure the permissions are such that only you can read it!)
+     You may need to create an accesstoken (see settings.ini.example).  To do this, go to your account (N.B. account, not repository) settings, click on "Developer Settings" and then "Personal access tokens".
 2. Run the script you wish to use, either with python (e.g. 'python3 <script>.py') or directly (e.g. './<script>.py').
 
 N.B. The .gitignore is already configured to ignore settings.ini and directories called 'virtualenv', 'VirtualEnv' and 'venv', to prevent accidental committal of secrets and virtual environments.
