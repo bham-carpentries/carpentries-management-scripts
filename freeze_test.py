@@ -127,3 +127,10 @@ class UrlTest(unittest.TestCase):
 
 		# Tear-down - delete dummy schedule (mainly to ensure file doesn't interfere with other tests - directories will be cleaned up by fixture (class-level) tear-down)
 		os.remove(os.path.join(self._tmprepodir, schedule_path))
+
+	def test_regression_github_io_urls_fail(self):
+		freeze.settings = freeze.read_settings(freeze.settings_file)
+		with self.assertWarns(RuntimeWarning) as warning:
+			freeze.do_freeze("https://bear-carpentries.github.io/2019-01-07-bham", test=True)
+			self.assertEqual(len(warning.warnings), 1)
+			self.assertEqual(str(warning.warnings[0].message), "***TEST SET TO TRUE - ABORTING***")

@@ -8,6 +8,7 @@ import os.path
 import re
 import tempfile
 import urllib.parse
+import warnings
 
 # 3rd part imports
 import dateparser
@@ -543,7 +544,7 @@ Automatic commit from freeze script.
 	# this was cloned at the start of do_freeze.
 	repo.remote('origin').push()
 
-def do_freeze(repo_url, force=False):
+def do_freeze(repo_url, force=False, test=False):
 	"""
 	Freeze the repository.
 
@@ -553,6 +554,10 @@ def do_freeze(repo_url, force=False):
 
 	args:
 	  repo_url: string address to the repository
+	  force: Passed through to freeze()
+	  test: If set to true, will abort after getting list of repos to
+	  		freeze (will not make any changes - just clone and examine
+	  		the source repository).
 
 	returns: Nothing
 	"""
@@ -571,6 +576,12 @@ def do_freeze(repo_url, force=False):
 
 		to_freeze = get_repos_to_freeze(tempdir)
 		logger.info("Need to freeze: %s", to_freeze)
+
+		if test:
+			# Abort
+			warnings.warn("***TEST SET TO TRUE - ABORTING***", RuntimeWarning)
+			logger.info("do_freeze is aborting after clone and get_repos_to_freeze")
+			return
 
 		frozen = {}
 		for (homepage, repo) in to_freeze:
