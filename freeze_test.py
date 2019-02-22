@@ -9,7 +9,7 @@ import urllib.parse
 import freeze
 
 # Uncommenting this can be handy for examining why test fail
-#logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG)
 
 class UrlTest(unittest.TestCase):
 	@classmethod
@@ -131,6 +131,6 @@ class UrlTest(unittest.TestCase):
 	def test_regression_github_io_urls_fail(self):
 		freeze.settings = freeze.read_settings(freeze.settings_file)
 		with self.assertWarns(RuntimeWarning) as warning:
-			freeze.do_freeze("https://bear-carpentries.github.io/2019-01-07-bham", test=True)
+			freeze.do_freeze("https://bham-carpentries.github.io/2019-02-11-bham/", _test=True)
 			self.assertEqual(len(warning.warnings), 1)
 			self.assertEqual(str(warning.warnings[0].message), "***TEST SET TO TRUE - ABORTING***")

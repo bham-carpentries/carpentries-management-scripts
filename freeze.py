@@ -544,7 +544,7 @@ Automatic commit from freeze script.
 	# this was cloned at the start of do_freeze.
 	repo.remote('origin').push()
 
-def do_freeze(repo_url, force=False, test=False):
+def do_freeze(repo_url, force=False, _test=False):
 	"""
 	Freeze the repository.
 
@@ -555,14 +555,21 @@ def do_freeze(repo_url, force=False, test=False):
 	args:
 	  repo_url: string address to the repository
 	  force: Passed through to freeze()
-	  test: If set to true, will abort after getting list of repos to
+	  _test: If set to true, will abort after getting list of repos to
 	  		freeze (will not make any changes - just clone and examine
-	  		the source repository).
+	  		the source repository).  ONLY FOR INTERNAL UNITTESTS.
 
 	returns: Nothing
 	"""
 	with tempfile.TemporaryDirectory() as tempdir:
 		logger.debug("Using temporary directory: %s", tempdir)
+
+		if 'github.io' in repo_url.lower():
+			url = urllib.parse.urlparse(repo_url)
+			new_url = _github_io_to_github_com(url)
+			repo_url = new_url.geturl()
+			logger.info("Converted github.io url to %s", repo_url)
+
 		# Make life easy when we try to push the changes at the end.
 		if 'github' in repo_url.lower() and '@' not in repo_url:
 			repo_url = repo_url.replace(
@@ -577,7 +584,7 @@ def do_freeze(repo_url, force=False, test=False):
 		to_freeze = get_repos_to_freeze(tempdir)
 		logger.info("Need to freeze: %s", to_freeze)
 
-		if test:
+		if _test:
 			# Abort
 			warnings.warn("***TEST SET TO TRUE - ABORTING***", RuntimeWarning)
 			logger.info("do_freeze is aborting after clone and get_repos_to_freeze")
