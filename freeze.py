@@ -221,7 +221,7 @@ def get_repos_to_freeze(repo_root):
 			match = link_re.search(line, start)
 			if match:
 				# Found a match - store the url found
-				url = urllib.parse.urlparse(match.group('url'))
+				url = urllib.parse.urlparse(match.group('url').strip())
 				if url.netloc.endswith('.github.io'):
 					url = _github_io_to_github_com(url)
 
