@@ -120,8 +120,8 @@ class UrlTest(unittest.TestCase):
 		self.assertEqual(
 			freeze.get_repos_to_freeze(self._tmprepodir),
 			[
-				('https://bham-carpentries.github.io/shell-novice', 'https://github.com/bham-carpentries/shell-novice'),
-				('https://bham-carpentries.github.io/python-novice-inflammation', 'https://github.com/bham-carpentries/python-novice-inflammation')
+				('https://bham-carpentries.github.io/shell-novice ', 'https://github.com/bham-carpentries/shell-novice'),
+				('https://bham-carpentries.github.io/python-novice-inflammation ', 'https://github.com/bham-carpentries/python-novice-inflammation')
 			]
 		)
 
