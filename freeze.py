@@ -122,7 +122,7 @@ def read_settings(settings_file):
 
 	return cp
 
-def __get_schedule_file_relative_path():
+def _get_schedule_file_relative_path():
 	"""
 	Returns the relative path of the schedule file to the git repo root.
 
@@ -138,7 +138,7 @@ def  __get_schedule_file_path(repo_root):
 	_write_schedule_file and update_repo_urls so we only have to fix it
 	in one place if	it changes.
 	"""
-	return os.path.join(repo_root, __get_schedule_file_relative_path())
+	return os.path.join(repo_root, _get_schedule_file_relative_path())
 
 def _get_schedule_file(repo_root):
 	"""
@@ -532,7 +532,7 @@ def update_repo_links(gitdirectory, frozen_urls):
 		new_schedule.append(new_line)
 	_write_schedule_file(gitdirectory, new_schedule)
 	ri = repo.index
-	schedule_file_location = __get_schedule_file_relative_path()
+	schedule_file_location = _get_schedule_file_relative_path()
 	logger.debug("Adding modified %s ready to commit", schedule_file_location)
 	ri.add([schedule_file_location])
 	ri.commit("""Updated schedule with frozen urls.

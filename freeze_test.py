@@ -1,4 +1,8 @@
 import logging
+import os
+import os.path
+import shutil
+import tempfile
 import unittest
 import urllib.parse
 
@@ -8,6 +12,27 @@ import freeze
 #logging.basicConfig(level=logging.DEBUG)
 
 class UrlTest(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		"""
+		Create a dummy "cloned" repo directory - for test cases that
+		require files.
+		"""
+		if getattr(cls, '_tmprepodir', None) is None:
+			cls._tmprepodir = tempfile.mkdtemp()
+			logging.debug("Created temporary 'repository' directory: %s", cls._tmprepodir)
+
+	@classmethod
+	def tearDownClass(cls):
+		try:
+			shutil.rmtree(cls._tmprepodir)
+			logging.debug("Cleaned up temporary 'repository' directory: %s", cls._tmprepodir)
+			cls._tmprepodir = None
+		except AttributeError:
+			# If no _tmprepodir, carry on as through we hadn't tried to
+			# delete it (it doesn't exist).
+			pass
+
 	def test_github_io_url_converstion(self):
 		"""
 		Test _github_io_to_github_com
@@ -73,3 +98,32 @@ class UrlTest(unittest.TestCase):
 		)
 		self.assertEqual(freeze._get_organisation_repo_from_url("https://bear-carpentries.github.io/2019-01-07-bham/"), ('bear-carpentries', '2019-01-07-bham'))
 
+	def test_regression_spaces_at_end_of_url(self):
+		# Tear-up - create a dummy schedule file with invalid urls in it
+		schedule_path = freeze._get_schedule_file_relative_path()
+		os.makedirs(os.path.join(self._tmprepodir, os.path.dirname(schedule_path)))
+		with open(os.path.join(self._tmprepodir, schedule_path), 'w') as f:
+			# Write a dummy schedule file with links that end in space in them
+			f.write("""
+			<html>
+				<body>
+					<p>
+						<ul>
+							<li><a href="https://bham-carpentries.github.io/shell-novice ">Shell-Novice</a></li>
+							<li><a href="https://bham-carpentries.github.io/python-novice-inflammation ">Python</a></li>
+						</ul>
+					</p>
+				</body>
+			</html>
+				""")
+
+		self.assertEqual(
+			freeze.get_repos_to_freeze(self._tmprepodir),
+			[
+				('https://bham-carpentries.github.io/shell-novice', 'https://github.com/bham-carpentries/shell-novice'),
+				('https://bham-carpentries.github.io/python-novice-inflammation', 'https://github.com/bham-carpentries/python-novice-inflammation')
+			]
+		)
+
+		# Tear-down - delete dummy schedule (mainly to ensure file doesn't interfere with other tests - directories will be cleaned up by fixture (class-level) tear-down)
+		os.remove(os.path.join(self._tmprepodir, schedule_path))
