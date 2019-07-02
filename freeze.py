@@ -2,7 +2,6 @@
 
 # Core modules
 import argparse
-import configparser
 import logging
 import os.path
 import re
@@ -14,6 +13,9 @@ import warnings
 import dateparser
 import git
 import github
+
+# Local imports
+import util
 
 logger = logging.getLogger(__name__)
 tempdirs = []
@@ -104,24 +106,6 @@ def process_commandline():
 		carry_on = True
 
 	logger.debug("Got repository '%s' from command line", repository)
-
-def read_settings(settings_file):
-	"""
-	Read settings for the program using ConfigParser.
-
-	args:
-		settings_file: filename to read
-
-	returns:
-		Result from configparser of reading the settings
-	"""
-	cp = configparser.ConfigParser()
-	cp.read(settings_file)
-	if not cp.sections():
-		logger.error("Unable to read any settings from '%s'.", settings_file)
-		raise RuntimeError("Unable to read settings.")
-
-	return cp
 
 def _get_schedule_file_relative_path():
 	"""
@@ -613,7 +597,7 @@ def do_freeze(repo_url, force=False, _test=False):
 
 if __name__ == '__main__':
 	process_commandline()
-	settings = read_settings(settings_file)
+	settings = util.read_settings(settings_file)
 	# Check for mandatory settings
 
 	# Lots of this code relies on there being an access token
