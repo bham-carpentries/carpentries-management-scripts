@@ -253,7 +253,7 @@ def _write_index_file(repo_root, lines):
     returns:
         Nothing
     """
-    index_path = __get_schedule_file_path(repo_root)
+    index_path = __get_index_file_path(repo_root)
     logger.debug("Writing new index to: %s", index_path)
 
     with open(index_path, 'w') as index_file:
