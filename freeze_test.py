@@ -298,8 +298,5 @@ class UrlTest(unittest.TestCase):
     def test_regression_github_io_urls_fail(self):
         freeze.load_settings()
         freeze.dry_run = True # Don't want it changing anything
-        with self.assertWarns(RuntimeWarning) as warning:
-            freeze.do_freeze("https://bham-carpentries.github.io/2019-02-11-bham/")
-
-        self.assertEqual(len(warning.warnings), 1)
-        self.assertEqual(str(warning.warnings[0].message), "***TEST SET TO TRUE - ABORTING***")
+        # This should not throw an exception, unless this bug has regressed
+        freeze.do_freeze("https://bham-carpentries.github.io/2019-02-11-bham/")
