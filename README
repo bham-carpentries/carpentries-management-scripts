@@ -55,4 +55,4 @@ Testing was added retrospectively but by requesting that no changes are made wit
 
 The tests can be run by:
 
-	python -m unittest discover -p '*-test.py'
+	python -m unittest discover -b -p '*_test.py'
