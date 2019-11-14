@@ -163,7 +163,7 @@ def _get_schedule_file_relative_path():
     Used by _get_schedule_file_path and update_repo_urls so we only have
     to fix it in one place if   it changes.
     """
-    return os.path.join('_includes', 'sc', 'schedule.html')
+    return os.path.join('_includes', 'swc', 'schedule.html')
  
 def _get_index_file_relative_path():
     """
@@ -755,12 +755,10 @@ def do_freeze(repo_url, force=False):
                 " frozen?"
              )
 
-def load_settings():
-    global settings
+if __name__ == '__main__':
+    process_commandline()
     settings = util.read_settings(settings_file)
-
     # Check for mandatory settings
-
     # Lots of this code relies on there being an access token
     if 'github' not in settings:
         logger.error(
@@ -774,8 +772,4 @@ def load_settings():
             settings_file
         )
         raise RuntimeError("No GitHub access token")
-
-if __name__ == '__main__':
-    process_commandline()
-    load_settings()
     do_freeze(repository, force)
