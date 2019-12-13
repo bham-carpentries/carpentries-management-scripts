@@ -366,7 +366,7 @@ def _get_github_instance():
     return github.Github(settings['github']['accesstoken'])
 
 
-def create_github_repo(organisation, repo_name, homepage=None):
+def create_github_repo(organisation, repo_name):
     """
     Create a new blank repo called repo_name within the organisation
     using the github api.
@@ -374,7 +374,6 @@ def create_github_repo(organisation, repo_name, homepage=None):
     args:
         organisation: organisation to create in
         repo_name: name to create
-        homepage: (optional) homepage for the repo
 
     returns:
         URL of the new repository
@@ -384,10 +383,19 @@ def create_github_repo(organisation, repo_name, homepage=None):
     gh_org = gh.get_organization(organisation)
 
     create_args = {'name': repo_name}
-    if homepage is not None:
-        create_args['homepage'] = homepage
     new_repo =  gh_org.create_repo(**create_args)
     return new_repo.clone_url
+
+def github_default_branch(organisation, repo_name):
+    """
+    Returns default branch for the repo.
+
+    args:
+        organisation: organisation to check
+        repo_name: name of repo to check
+    """
+    return _get_github_instance().get_organization(organisation)\
+        .get_repo(repo_name).default_branch
 
 def set_github_default_branch(organisation, repo_name, branch='master'):
     """
@@ -419,6 +427,21 @@ def get_github_homepage(organisation, repo_name):
     return _get_github_instance().get_organization(organisation)\
         .get_repo(repo_name).homepage
 
+def set_github_homepage(organisation, repo_name, homepage):
+    """
+    Sets the homepage on a github repo.
+
+    args:
+        organisation: organisation to update in
+        repo_name: name of repo to update
+        homepage: url to set as homepage
+
+    returns:
+        Nothing
+    """
+    _get_github_instance().get_organization(organisation).get_repo(repo_name)\
+        .edit(homepage=homepage)
+
 def import_to(source, dest):
     """
     Import repository from source to dest.
@@ -440,7 +463,7 @@ def import_to(source, dest):
         repo.delete_remote('origin')
         repo.create_remote('origin', dest)
         repo.remote('origin').push(mirror=True)
-        logger.info("Pushed to new reposotory: %s", dest)
+        logger.info("Pushed to new repository: %s", dest)
 
 
 def update_frozen_repository(repo_url, course_repository):
@@ -568,12 +591,12 @@ def freeze(repo_url, freeze_date, force=False):
     """
 
     logger.debug("Freezing repository: %s", repo_url)
-    (organisation, repo_name) = _get_organisation_repo_from_url(repo_url)
+    (organisation, old_repo_name) = _get_organisation_repo_from_url(repo_url)
     # Does the url path already start with something that looks like
     # a YYYY-MM-DD-bham_ format (20..-*.-^.-bham_ where . is any digit,
     # * is 0 or 1 and ^ is 0, 1, 2 or 3)?
     if re.match('20[0-9]{2}-[01][0-9]-[0-3][0-9]-bham_',
-        repo_name):
+        old_repo_name):
         logger.warning(
             "Repository '%s' looks like it is already frozen",
             repo_url
@@ -584,14 +607,12 @@ def freeze(repo_url, freeze_date, force=False):
         else:
             logger.info("Force specified, freezing anyway.")
 
-    repo_name = '%s-bham_' % freeze_date.isoformat() + repo_name
-    repo_homepage = "https://%s.github.io/%s" % (organisation, repo_name)
+    repo_name = '%s-bham_' % freeze_date.isoformat() + old_repo_name
 
     if dry_run:
         logger.info(
             "DRY-RUN - Would have created a a new repository, %s, in"
-            " organisation, %s, with homepage: %s", repo_name, organisation,
-            repo_homepage
+            " organisation, %s", repo_name, organisation
         )
         # Set a (semi-)dummy value for the next step
         new_repo_url = "https://github.com/%s/%s.git" % (
@@ -600,16 +621,14 @@ def freeze(repo_url, freeze_date, force=False):
         )
     else:
         # Create the new remote repository
-        new_repo_url = create_github_repo(
-            organisation, repo_name, repo_homepage
-        )
+        new_repo_url = create_github_repo(organisation, repo_name)
         logger.info(
             "Created repository which will be published at: %s",
-            repo_homepage
+            new_repo_url
         )
 
     # This is why we need an access token rather than username/password
-    new_repo_url = new_repo_url.replace(
+    new_repo_user_url = new_repo_url.replace(
         '://',
         '://%(user)s@' % {
             'user': settings['github']['accesstoken'],
@@ -623,14 +642,54 @@ def freeze(repo_url, freeze_date, force=False):
             new_repo_url
         )
     else:
-        import_to(repo_url, new_repo_url)
-        set_github_default_branch(organisation, repo_name, 'gh-pages')
-        logger.debug("Set default branch to gh-pages on new repo.")
+        import_to(repo_url, new_repo_user_url)
+
+    old_default_branch = github_default_branch(organisation, old_repo_name)
+    if old_default_branch != 'master':
+        if dry_run:
+            logger.info(
+                "DRY-RUN - old repo, %s, has %s as default branch.  Would have"
+                " made it default on new repo too.",
+                repo_url,
+                old_default_branch
+            )
+        else:
+            set_github_default_branch(
+                organisation, repo_name, old_default_branch
+            )
+            logger.debug(
+                "Set default branch to %s on new repo.", old_default_branch
+            )
+
+    if old_default_branch == 'gh-pages':
+        repo_homepage = "https://%s.github.io/%s" % (organisation, repo_name)
+        if dry_run:
+            logger.info(
+                "DRY-RUN Old repository default branch was gh-pages.  Would"
+                " have set homepage and update links."
+            )
+        else:
+            logger.info(
+                "Old repository default branch was gh-pages.  Will set homepage"
+                " and update links."
+            )
+            set_github_homepage(organisation, repo_name, repo_homepage)
+            update_frozen_repository(new_repo_user_url, repository)
+        logger.info("Will return URL to github.io pages")
+        result  = repo_homepage
+    else:
+        logger.info(
+            "Default branch is not gh-pages -- will return URL to repo"
+        )
+        # Remove '.git' from end of url for link to GitHub repo page
+        if new_repo_url.endswith('.git'):
+            result = new_repo_url[:-4]
+        else:
+            result = new_repo_url
 
     logger.info("Imported repository.")
 
-    update_frozen_repository(new_repo_url, repository)
-    return repo_homepage
+    return result
 
 def update_repo_links(gitdirectory, frozen_urls):
     """
